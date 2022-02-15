@@ -9,7 +9,7 @@ prepare data +
 
 normalazing data +
 
-create model
+create model+
 
-create telegram bot
+create telegram bot + (demo)
 

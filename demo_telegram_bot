@@ -1,0 +1,274 @@
+import json
+import keras
+import telebot
+from time import sleep
+
+class SomeError(Exception):
+    def __init__(self, text):
+        self.txt = text
+
+import sys
+import os
+
+
+
+#load data normalization key
+with open('/Users/aleksandrglotov/Desktop/Predict_Youtube_Dislikes/lib/normalization_cars_dict.json','r') as f:
+    normalization_key=json.load(f)
+
+fuels=normalization_key['fuel'].keys()
+years=[i for i in range(2008,2023)]
+vols=set([str(round(int(i)/1000,2)) for i in normalization_key['vol_engine'].keys()])
+provinces=['Dolnośląski','Kujawsko-pomorskie','Lubelskie','Lubuskie','Łódzkie','Małopolskie','Mazowieckie',
+          'Opolskie','Podkarpackie','Podlaskie','Pomorskie','Śląskie','Świętokrzyskie','Warmińsko-mazurskie',
+          'Wielkopolskie','Zachodniopomorskie']
+locations=normalization_key['location'].keys()
+
+token = '5233734156:AAEyUy-zVm5UEuuY6SbEJQAsirbtX5OAfuo'
+bot = telebot.TeleBot(token)
+
+#This options I selected in data normalization and model creating
+year_min=2008
+year_max=2022
+price_min=13000
+price_max=160000
+mileage_max=255000
+
+# print(normalization_key['year'].keys())
+
+
+def reformat_price(norm_price,price_min=price_min,price_max=price_max):
+    range_=price_max-price_min
+    price=norm_price*range_+price_min
+    return price
+
+#Numbers normalization
+def get_norm_number(number,min_n,max_n):
+    if number>=max_n:
+        number=max_n
+    elif number<=min_n:
+        number=min_n
+    range_=max_n-min_n
+    norm_number=(number-min_n)/range_
+    return norm_number
+
+
+#Is it new?
+def is_new(year,mileage):
+    print(year,mileage)
+    if mileage<999 and year>2020:
+        arr=normalization_key['new']['1']
+        print('new')
+    else:
+        arr=normalization_key['new']['0']
+        print('not_new')
+    return arr
+
+def get_marks():
+    return [i.split(" ")[0] for i in normalization_key['name'].keys()]
+
+def get_models(mark):
+    mmg = [i.split(" ") for i in normalization_key['name'].keys()]
+    models=list(set([i[1] for i in mmg if i[0]==mark]))
+    return models
+
+
+def get_generations(mark,model):
+    mmg = [i.split(" ") for i in normalization_key['name'].keys()]
+    generations = list(set([i[2] for i in mmg if i[0] == mark and i[1]==model]))
+    return generations
+
+def get_location(province,city):
+    top_locations=list(normalization_key['location'].keys())
+    if city not in top_locations:
+        location=city
+    else:
+        location=province
+    return location
+
+#Load model and make predition
+model=keras.models.load_model('/Users/aleksandrglotov/Desktop/Predict_Youtube_Dislikes/lib/car_prices_test_model')
+def get_predict(input_line):
+    prediction=model.predict([input_line])
+    return float(prediction[0][0])
+
+from telebot import types
+#
+# class Car():
+#     def __init__(self, year,mileage,vol_engine,fuel,location,name,new,chat_id):
+#         self.year=year
+#         self.mileage=mileage
+#         self.vol_engine=vol_engine
+#         self.fuel=fuel
+#         self.location=location
+#         self.name = name
+#         self.new = new
+#         self.chat_id=chat_id
+#
+#     def get_price(self):
+#
+#         input_data = [[get_norm_number(int(self.year), year_min, year_max)],
+#                       [get_norm_number(float(self.mileage) * 1000, 0, mileage_max)],
+#                       normalization_key['vol_engine'][str(int(float((self.vol_engine)) * 1000))],
+#                       normalization_key['fuel'][self.fuel],
+#                       normalization_key['location'][self.location],
+#                       normalization_key['name'][self.name],
+#                       new]
+#
+#         return price
+
+
+# [year, mileage, vol_engine, fuel, location, name, new]
+
+@bot.message_handler(commands=['start'])
+def starter(message):
+
+
+
+
+    user=message.from_user.first_name
+    print(id,user)
+    bot.send_message(message.chat.id,'Hello, this bot can predict price for cars. It works only in Poland. \nI parsed listings from otomoto and than train neural network')
+    sleep(0.6)
+    bot.send_message(message.chat.id,
+                     'Please type you mark\nFor example: Audi')
+
+
+    @bot.message_handler(content_types=['text'],func=lambda message: message.text.lower() in get_marks())
+    def get_text_messages(message):
+        print(message.text)
+        try:
+            mark=message.text.lower().replace(' ',"-")
+            models=get_models(mark)
+            if len(models)==0:
+                raise SomeError("Marks didn't find")
+            print(models)
+            models_items=types.InlineKeyboardMarkup(row_width=4)
+            items=[]
+            for model in models:
+                item=types.InlineKeyboardButton(model,callback_data=model)
+                items.append(item)
+                models_items.add(item)
+            bot.send_message(message.chat.id, text='Select your model', reply_markup=models_items)
+
+        except Exception as e:
+            bot.send_message(message.chat.id,e)
+
+        @bot.callback_query_handler(func=lambda call: call.data in models)
+        def callback_inline(call):
+            model=call.data
+            print(model)
+            generations=get_generations(mark,model)
+            print(generations)
+            generations_items = types.InlineKeyboardMarkup(row_width=4)
+            items = []
+            for gen in generations:
+                item = types.InlineKeyboardButton(gen, callback_data=gen)
+                items.append(item)
+                generations_items.add(item)
+            bot.send_message(message.chat.id, text='Select your generation', reply_markup=generations_items)
+
+            @bot.callback_query_handler(func=lambda call: call.data in generations)
+            def callback_inline(call):
+                generation = call.data
+                print(generation)
+                vols_items = types.InlineKeyboardMarkup(row_width=4)
+                items = []
+                for vol in vols:
+                    item = types.InlineKeyboardButton(vol, callback_data=vol)
+                    items.append(item)
+                    vols_items.add(item)
+                bot.send_message(message.chat.id, text='Please select volume engine', reply_markup=vols_items)
+
+
+                @bot.callback_query_handler(func=lambda call: call.data in vols)
+                def callback_inline(call):
+                    vol_engine=call.data
+                    print(vol_engine)
+                    prov_items = types.InlineKeyboardMarkup(row_width=4)
+                    items = []
+                    for prov in provinces:
+                        item = types.InlineKeyboardButton(prov, callback_data=prov)
+                        items.append(item)
+                        prov_items.add(item)
+                    bot.send_message(message.chat.id, text='Select your province', reply_markup=prov_items)
+
+
+                    @bot.callback_query_handler(func=lambda call: call.data in provinces)
+                    def callback_inline(call):
+                        province = call.data
+                        print(province)
+                        fuels_items = types.InlineKeyboardMarkup(row_width=4)
+                        items = []
+                        for fuel in fuels:
+                            item = types.InlineKeyboardButton(fuel, callback_data=fuel)
+                            items.append(item)
+                            fuels_items.add(item)
+                        bot.send_message(message.chat.id, text='Select your fuel', reply_markup=fuels_items)
+
+                        @bot.callback_query_handler(func=lambda call: call.data in fuels)
+                        def callback_inline(call):
+                            fuel = call.data
+                            print(fuel)
+                            year_items = types.InlineKeyboardMarkup(row_width=4)
+                            items = []
+                            for year in years:
+                                item = types.InlineKeyboardButton(year, callback_data=year)
+                                items.append(item)
+                                year_items.add(item)
+                            bot.send_message(message.chat.id, text='Select your year', reply_markup=year_items)
+
+
+                            @bot.callback_query_handler(func=lambda call: call.data in [str(i) for i in years])
+                            def callback_inline(call):
+                                year = call.data
+                                bot.send_message(message.chat.id,
+                                                 text='Please type odometer numbers thousands and km. ex: 150km (it means 150.000km) max.500 ')
+                                print(year)
+
+                                @bot.message_handler(content_types=['text'],
+                                                     func=lambda message: True if 'km' in message.text.lower() else False)
+                                def get_text_messages(message):
+                                    mileage = message.text
+                                    print(mileage[:-2])
+                                    mileage=mileage[:-2]
+                                    location=province
+                                    name=f'{mark} {model} {generation}'
+                                    new=is_new(int(year),int(mileage)*1000)
+                                    # new=[0,1]
+                                    # car=Car(year, mileage, vol_engine, fuel, location, name, new,message.chat.id)
+                                    input_data = [year, mileage, vol_engine, fuel, location, name, new]
+                                    print(input_data)
+
+                                    input_data=[[get_norm_number(int(year),year_min,year_max)],
+                                                [get_norm_number(float(mileage)*1000,0,mileage_max)],
+                                                normalization_key['vol_engine'][str(int(float((vol_engine))*1000))],
+                                                normalization_key['fuel'][fuel],
+                                                normalization_key['location'][location],
+                                                normalization_key['name'][name],
+                                                new]
+
+                                    print(input_data)
+                                    norm_data=[]
+                                    for i in input_data:
+                                        norm_data+=i
+                                    print(norm_data)
+                                    norm_price=get_predict(norm_data)
+                                    print(norm_price)
+                                    price=reformat_price(norm_price)
+                                    if price>=150000:
+                                        price='>=150 000'
+                                    elif price<=13000:
+                                        price='<=13000'
+                                    else:
+                                        min_p=round(price*0.95,-2)
+                                        max_p=round(price*1.05,-2)
+                                        price=f"{min_p}-{max_p}"
+                                    bot.send_message(message.chat.id, f'Price {price} PLN')
+                                    bot.send_message(message.chat.id, f'type /start if you wish again')
+                                    python = sys.executable
+                                    os.execl(python, python, *sys.argv)
+
+
+bot.polling(none_stop=True)
+
